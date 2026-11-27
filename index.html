@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BolKhata — Voice-First Kirana Ledger & Inventory Copilot</title>
+  <style>
+    :root {
+      --primary: #16a34a;
+      --primary-dark: #15803d;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --danger: #dc2626;
+      --warning: #d97706;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    header {
+      background: #0f172a; color: #fff; padding: 16px 24px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    header h1 { margin: 0; font-size: 1.4rem; display: flex; align-items: center; gap: 8px; }
+    .badge { background: var(--primary); font-size: 0.75rem; padding: 3px 8px; border-radius: 999px; }
+    .container { max-width: 1050px; margin: 24px auto; padding: 0 16px; }
+    .voice-box {
+      background: var(--card); border: 2px solid var(--border); border-radius: 16px;
+      padding: 24px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+      margin-bottom: 24px;
+    }
+    .mic-btn {
+      width: 84px; height: 84px; border-radius: 50%; border: none;
+      background: var(--primary); color: #fff; font-size: 2rem; cursor: pointer;
+      box-shadow: 0 8px 20px rgba(22, 163, 74, 0.35); transition: transform 0.15s;
+    }
+    .mic-btn:hover { transform: scale(1.05); background: var(--primary-dark); }
+    .mic-btn.listening { background: var(--danger); animation: pulse 1.2s infinite; }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }
+      70% { box-shadow: 0 0 0 18px rgba(220, 38, 38, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+    }
+    .status-text { margin-top: 12px; font-weight: 600; color: var(--muted); }
+    .transcript-bar {
+      margin: 14px auto 0; max-width: 650px; display: flex; gap: 8px;
+    }
+    .transcript-bar input {
+      flex: 1; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95rem;
+    }
+    .transcript-bar button {
+      padding: 10px 16px; background: #0f172a; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;
+    }
+    .chips { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .chip {
+      background: #f1f5f9; border: 1px solid var(--border); padding: 6px 12px;
+      border-radius: 999px; font-size: 0.82rem; cursor: pointer; color: #334155;
+    }
+    .chip:hover { background: #e2e8f0; }
+    .response-card {
+      margin-top: 16px; background: #f0fdf4; border: 1px solid #86efac;
+      border-radius: 12px; padding: 14px 18px; display: none; text-align: left;
+      justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .response-card.warn { background: #fffbeb; border-color: #fcd34d; }
+    .btn-sm {
+      padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 0.82rem; font-weight: 600;
+    }
+    .btn-undo { background: #fee2e2; color: var(--danger); }
+    .btn-wa { background: #25d366; color: #fff; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+    .panel {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px;
+    }
+    .panel h2 { margin: 0 0 12px; font-size: 1.1rem; display: flex; justify-content: space-between; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
+    .amt-due { color: var(--danger); font-weight: 700; }
+    .amt-clear { color: var(--primary); font-weight: 600; }
+    .low-stock { color: var(--warning); font-weight: 700; }
+    .modal {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+      align-items: center; justify-content: center; padding: 16px;
+    }
+    .modal-content {
+      background: #fff; padding: 20px; border-radius: 12px; max-width: 400px; width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🎙️ BolKhata <span class="badge">Voice-First Kirana Copilot</span></h1>
+    <div style="font-size: 0.85rem; color: #cbd5e1;">Hinglish • Hindi • English</div>
+  </header>
+
+  <div class="container">
+    <div class="voice-box">
+      <button id="micBtn" class="mic-btn" title="Tap to Speak">🎤</button>
+      <div id="statusText" class="status-text">Tap mic & speak in Hindi/Hinglish, or test with sample commands below</div>
+
+      <div class="transcript-bar">
+        <input id="cmdInput" type="text" placeholder='Try: "Sharma ji ke 450 rupaye udhaar likho"' />
+        <button onclick="handleCommand(document.getElementById('cmdInput').value)">Run</button>
+      </div>
+
+      <div class="chips">
+        <span class="chip" onclick="runSample('Sharma ji ke 450 rupaye udhaar likho')">"Sharma ji ke 450 rupaye udhaar likho"</span>
+        <span class="chip" onclick="runSample('Verma ji ne 300 rupaye jama kiye')">"Verma ji ne 300 rupaye jama kiye"</span>
+        <span class="chip" onclick="runSample('20 packet Maggi stock se minus karo')">"20 packet Maggi stock se minus karo"</span>
+        <span class="chip" onclick="runSample('10 kg Chini stock mein add karo')">"10 kg Chini stock mein add karo"</span>
+        <span class="chip" onclick="runSample('Sharma ji 500')">"Sharma ji 500" (Ambiguous Test)</span>
+      </div>
+
+      <div id="responseCard" class="response-card">
+        <div id="responseMsg"></div>
+        <div style="display:flex; gap:8px;">
+          <button id="undoBtn" class="btn-sm btn-undo" onclick="undoLast()">↩ Undo</button>
+          <button id="waBtn" class="btn-sm btn-wa" onclick="openWhatsApp()">📲 WhatsApp Receipt</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <h2>📒 Customer Udhaar Khata <span id="totalDue" class="amt-due"></span></h2>
+        <table>
+          <thead><tr><th>Customer</th><th>Balance Due</th><th>Action</th></tr></thead>
+          <tbody id="khataBody"></tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h2>📦 Live Dukaan Inventory</h2>
+        <table>
+          <thead><tr><th>Item</th><th>Stock</th><th>Status</th></tr></thead>
+          <tbody id="stockBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="waModal" class="modal" onclick="if(event.target===this)this.style.display='none'">
+    <div class="modal-content">
+      <h3 style="margin-top:0;">📲 WhatsApp Payment Reminder</h3>
+      <p id="waText" style="background:#dcf8c6; padding:12px; border-radius:8px; font-size:0.92rem;"></p>
+      <button class="btn-sm btn-wa" style="width:100%; padding:10px;" onclick="document.getElementById('waModal').style.display='none'">Sent via WhatsApp ✓</button>
+    </div>
+  </div>
+
+  <script>
+    let khata = [
+      { name: "Sharma ji", due: 800 },
+      { name: "Verma ji", due: 500 },
+      { name: "Gupta ji", due: 0 }
+    ];
+    let inventory = [
+      { item: "Maggi", unit: "packets", qty: 24, min: 10 },
+      { item: "Chini", unit: "kg", qty: 15, min: 10 },
+      { item: "Aashirvaad Atta", unit: "bags", qty: 4, min: 5 }
+    ];
+    let historyStack = [];
+    let lastCustomer = null;
+
+    function render() {
+      const kb = document.getElementById("khataBody");
+      kb.innerHTML = "";
+      let total = 0;
+      khata.forEach(c => {
+        total += c.due;
+        kb.innerHTML += `<tr>
+          <td><strong>${c.name}</strong></td>
+          <td class="${c.due > 0 ? 'amt-due' : 'amt-clear'}">₹${c.due}</td>
+          <td><button class="btn-sm" onclick="lastCustomer='${c.name}';openWhatsApp()">Remind</button></td>
+        </tr>`;
+      });
+      document.getElementById("totalDue").innerText = `Total: ₹${total}`;
+
+      const sb = document.getElementById("stockBody");
+      sb.innerHTML = "";
+      inventory.forEach(i => {
+        const low = i.qty <= i.min;
+        sb.innerHTML += `<tr>
+          <td><strong>${i.item}</strong></td>
+          <td>${i.qty} ${i.unit}</td>
+          <td class="${low ? 'low-stock' : 'amt-clear'}">${low ? '⚠️ Low Stock' : '✓ OK'}</td>
+        </tr>`;
+      });
+    }
+
+    function speak(text) {
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = "hi-IN";
+        window.speechSynthesis.speak(u);
+      }
+    }
+
+    function saveSnapshot() {
+      historyStack.push(JSON.stringify({ khata, inventory }));
+    }
+
+    function undoLast() {
+      if (!historyStack.length) return;
+      const prev = JSON.parse(historyStack.pop());
+      khata = prev.khata;
+      inventory = prev.inventory;
+      render();
+      showResponse("↩ Last entry undone.", false, false);
+      speak("Pichli entry hata di gayi hai.");
+    }
+
+    function showResponse(msg, isWarn = false, showActions = true) {
+      const card = document.getElementById("responseCard");
+      card.style.display = "flex";
+      card.className = "response-card" + (isWarn ? " warn" : "");
+      document.getElementById("responseMsg").innerHTML = msg;
+      document.getElementById("undoBtn").style.display = showActions ? "inline-block" : "none";
+      document.getElementById("waBtn").style.display = (showActions && lastCustomer) ? "inline-block" : "none";
+    }
+
+    function runSample(text) {
+      document.getElementById("cmdInput").value = text;
+      handleCommand(text);
+    }
+
+    function handleCommand(raw) {
+      const text = (raw || "").trim();
+      if (!text) return;
+      const lower = text.toLowerCase();
+      const numMatch = lower.match(/(\d+)/);
+      const num = numMatch ? parseInt(numMatch[1], 10) : 0;
+
+      // Stock commands
+      if (lower.includes("stock") || lower.includes("maggi") || lower.includes("chini") || lower.includes("atta")) {
+        const prod = inventory.find(p => lower.includes(p.item.toLowerCase())) || inventory[0];
+        if (!num) {
+          showResponse(`🤔 Kitne ${prod.unit} ${prod.item} update karne hain?`, true, false);
+          return;
+        }
+        saveSnapshot();
+        lastCustomer = null;
+        if (lower.includes("minus") || lower.includes("kam") || lower.includes("becha")) {
+          prod.qty = Math.max(0, prod.qty - num);
+          const msg = `✅ ${num} ${prod.unit} ${prod.item} stock se minus kiye. Bacha stock: ${prod.qty} ${prod.unit}.`;
+          showResponse(msg);
+          speak(msg);
+        } else {
+          prod.qty += num;
+          const msg = `✅ ${num} ${prod.unit} ${prod.item} stock mein add kiye. Total stock: ${prod.qty} ${prod.unit}.`;
+          showResponse(msg);
+          speak(msg);
+        }
+        render();
+        return;
+      }
+
+      // Customer Khata commands
+      let cust = khata.find(c => lower.includes(c.name.toLowerCase().split(" ")[0]));
+      if (!cust) {
+        const nameWord = text.split(" ")[0];
+        cust = { name: nameWord.charAt(0).toUpperCase() + nameWord.slice(1) + " ji", due: 0 };
+        khata.push(cust);
+      }
+      lastCustomer = cust.name;
+
+      // Ambiguity check
+      const isUdhaar = lower.includes("udhaar") || lower.includes("likho") || lower.includes("baaki") || lower.includes("add");
+      const isJama = lower.includes("jama") || lower.includes("diye") || lower.includes("paid") || lower.includes("minus");
+
+      if (!isUdhaar && !isJama) {
+        const clarify = `⚠️ Clarify: Kya ${cust.name} ke ₹${num} <b>udhaar likhne</b> hain ya <b>jama (received)</b> karne hain?`;
+        showResponse(clarify, true, false);
+        speak(`Kya ${cust.name} ke ${num} rupaye udhaar likhne hain ya jama karne hain?`);
+        return;
+      }
+
+      saveSnapshot();
+      if (isJama) {
+        cust.due = Math.max(0, cust.due - num);
+        const msg = `✅ Done! ${cust.name} ke ₹${num} jama kiye gaye. Naya baaki: ₹${cust.due}.`;
+        showResponse(msg);
+        speak(`${cust.name} ke ${num} rupaye jama kiye gaye. Total baaki ${cust.due} rupaye.`);
+      } else {
+        cust.due += num;
+        const msg = `✅ Done! ${cust.name} ke khate mein ₹${num} udhaar jode gaye. Total baaki: ₹${cust.due}.`;
+        showResponse(msg);
+        speak(`${cust.name} ke khate mein ${num} rupaye udhaar jode gaye. Total baaki ${cust.due} rupaye.`);
+      }
+      render();
+    }
+
+    function openWhatsApp() {
+      const cust = khata.find(c => c.name === lastCustomer) || khata[0];
+      document.getElementById("waText").innerText =
+        `Namaste ${cust.name}, aapka total udhaar balance ₹${cust.due} hai. Kripya UPI ya cash se jald bhugtan karein. — Apna Kirana Store (via BolKhata)`;
+      document.getElementById("waModal").style.display = "flex";
+    }
+
+    // Web Speech API setup
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const micBtn = document.getElementById("micBtn");
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.lang = "hi-IN";
+      recognition.interimResults = false;
+      micBtn.onclick = () => {
+        micBtn.classList.add("listening");
+        document.getElementById("statusText").innerText = "Listening... Speak now (e.g., 'Sharma ji ke 450 rupaye udhaar likho')";
+        recognition.start();
+      };
+      recognition.onresult = (e) => {
+        const transcript = e.results[0][0].transcript;
+        document.getElementById("cmdInput").value = transcript;
+        handleCommand(transcript);
+      };
+      recognition.onend = () => {
+        micBtn.classList.remove("listening");
+        document.getElementById("statusText").innerText = "Tap mic to speak again";
+      };
+    } else {
+      micBtn.onclick = () => alert("Voice mic works best in Chrome/Edge. You can also type or click any sample command below!");
+    }
+
+    render();
+  </script>
+</body>
+</html>
